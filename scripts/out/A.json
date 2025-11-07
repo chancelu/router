@@ -1,0 +1,38 @@
+{
+  "objects": [
+    {
+      "name": "bed",
+      "position": "north",
+      "relative_area": 0.3,
+      "material": "wood",
+      "color": "light",
+      "notes": "靠墙摆放"
+    },
+    {
+      "name": "desk",
+      "position": "east",
+      "relative_area": 0.1,
+      "material": "metal",
+      "color": "black",
+      "notes": "靠窗采光"
+    }
+  ],
+  "layout": {
+    "facing": "south",
+    "doors": 1,
+    "windows": 2,
+    "bed": "north",
+    "desk": "east",
+    "sofa": null,
+    "stove": null,
+    "entrance": "west"
+  },
+  "directions": {
+    "north": "床",
+    "south": "空区",
+    "east": "桌",
+    "west": "门",
+    "center": "空"
+  },
+  "questions": []
+}

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图床上传测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .upload-area { 
+            border: 2px dashed #ccc; 
+            padding: 20px; 
+            text-align: center; 
+            margin: 20px 0;
+            cursor: pointer;
+        }
+        .upload-area:hover { background-color: #f5f5f5; }
+        .result { 
+            margin: 20px 0; 
+            padding: 15px; 
+            background-color: #f0f0f0; 
+            border-radius: 5px;
+        }
+        .image-preview { max-width: 300px; margin: 10px 0; }
+        .log { 
+            background-color: #000; 
+            color: #0f0; 
+            padding: 10px; 
+            font-family: monospace; 
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        .step { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .step.active { background-color: #e3f2fd; }
+        .step.completed { background-color: #e8f5e8; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 图床上传功能测试</h1>
+        <p>测试步骤A→B→C的完整流程，验证图床上传和img2img功能</p>
+        
+        <div class="step" id="step1">
+            <h3>步骤1：上传图片</h3>
+            <div class="upload-area" id="uploadArea">
+                <p>📷 点击选择图片或拖拽图片到这里</p>
+                <input type="file" id="fileInput" accept="image/*" style="display: none;">
+            </div>
+            <div id="imagePreview"></div>
+            <button id="uploadBtn" disabled>上传到图床</button>
+        </div>
+
+        <div class="step" id="step2">
+            <h3>步骤2：模拟步骤A（物品识别）</h3>
+            <button id="stepABtn" disabled>运行步骤A</button>
+            <div id="stepAResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="step" id="step3">
+            <h3>步骤3：模拟步骤B（风水分析）</h3>
+            <button id="stepBBtn" disabled>运行步骤B</button>
+            <div id="stepBResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="step" id="step4">
+            <h3>步骤4：模拟步骤C（图像生成）</h3>
+            <button id="stepCBtn" disabled>运行步骤C（使用图床URL）</button>
+            <div id="stepCResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        let uploadedImageUrl = '';
+        let stepAData = null;
+        let stepBData = null;
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        // 文件上传处理
+        document.getElementById('uploadArea').addEventListener('click', () => {
+            document.getElementById('fileInput').click();
+        });
+
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    img.className = 'image-preview';
+                    document.getElementById('imagePreview').innerHTML = '';
+                    document.getElementById('imagePreview').appendChild(img);
+                    document.getElementById('uploadBtn').disabled = false;
+                    log(`✅ 图片已选择: ${file.name}, 大小: ${(file.size/1024).toFixed(1)}KB`);
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 上传到图床
+        document.getElementById('uploadBtn').addEventListener('click', async () => {
+            const file = document.getElementById('fileInput').files[0];
+            if (!file) return;
+
+            log('🔄 开始上传到图床...');
+            document.getElementById('uploadBtn').disabled = true;
+
+            try {
+                const formData = new FormData();
+                formData.append('image', file);
+
+                const response = await fetch('http://localhost:3001/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    uploadedImageUrl = result.url || result.localUrl;
+                    log(`✅ 图床上传成功！`);
+                    log(`📎 公网URL: ${result.url}`);
+                    log(`📎 本地URL: ${result.localUrl}`);
+                    log(`🏷️ 托管状态: ${result.hosted ? '已托管到imgbb' : '使用本地URL'}`);
+                    
+                    document.getElementById('step1').classList.add('completed');
+                    document.getElementById('stepABtn').disabled = false;
+                } else {
+                    log(`❌ 上传失败: ${result.error}`);
+                }
+            } catch (error) {
+                log(`❌ 上传错误: ${error.message}`);
+            } finally {
+                document.getElementById('uploadBtn').disabled = false;
+            }
+        });
+
+        // 模拟步骤A - 物品识别
+        document.getElementById('stepABtn').addEventListener('click', async () => {
+            log('🔄 运行步骤A（物品识别）...');
+            document.getElementById('stepABtn').disabled = true;
+            document.getElementById('step2').classList.add('active');
+
+            try {
+                // 模拟识别结果
+                stepAData = {
+                    objects: [
+                        { name: "白色台灯", position: "左上角", type: "lighting" },
+                        { name: "白色笔筒", position: "中间偏右", type: "storage" },
+                        { name: "多肉植物", position: "右侧", type: "plant" },
+                        { name: "螺旋笔记本", position: "中间", type: "stationery" },
+                        { name: "蓝色笔记本", position: "右侧", type: "stationery" },
+                        { name: "黑色钢笔", position: "笔筒内", type: "writing" }
+                    ],
+                    layout: "整洁的木质书桌",
+                    direction: "坐北朝南",
+                    imageUrl: uploadedImageUrl
+                };
+
+                document.getElementById('stepAResult').innerHTML = `
+                    <h4>识别结果：</h4>
+                    <p><strong>布局：</strong>${stepAData.layout}</p>
+                    <p><strong>朝向：</strong>${stepAData.direction}</p>
+                    <p><strong>识别物品：</strong></p>
+                    <ul>
+                        ${stepAData.objects.map(obj => `<li>${obj.name} - ${obj.position}</li>`).join('')}
+                    </ul>
+                `;
+                document.getElementById('stepAResult').style.display = 'block';
+                
+                log(`✅ 步骤A完成，识别了 ${stepAData.objects.length} 个物品`);
+                document.getElementById('step2').classList.add('completed');
+                document.getElementById('stepBBtn').disabled = false;
+            } catch (error) {
+                log(`❌ 步骤A错误: ${error.message}`);
+            } finally {
+                document.getElementById('stepABtn').disabled = false;
+            }
+        });
+
+        // 模拟步骤B - 风水分析
+        document.getElementById('stepBBtn').addEventListener('click', async () => {
+            log('🔄 运行步骤B（风水分析）...');
+            document.getElementById('stepBBtn').disabled = true;
+            document.getElementById('step3').classList.add('active');
+
+            try {
+                // 模拟风水建议
+                stepBData = {
+                    advice: "根据当前书桌布局，建议添加以下风水元素来提升文昌位能量：",
+                    itemsToAdd: [
+                        { item: "文昌塔", position: "书桌左上角（文昌位）", reason: "增强学业和事业运势" },
+                        { item: "富贵竹", position: "书桌后方窗台", reason: "提升生气和财运" },
+                        { item: "暖光台灯", position: "书桌左侧（青龙位）", reason: "补充阳气，改善照明" },
+                        { item: "圆形聚宝盆", position: "书桌中央偏前", reason: "聚财纳气" }
+                    ],
+                    layout: "保持现有整洁布局，注意物品摆放的五行平衡",
+                    originalImageUrl: uploadedImageUrl
+                };
+
+                document.getElementById('stepBResult').innerHTML = `
+                    <h4>风水分析结果：</h4>
+                    <p>${stepBData.advice}</p>
+                    <p><strong>建议添加：</strong></p>
+                    <ul>
+                        ${stepBData.itemsToAdd.map(item => `<li><strong>${item.item}</strong> - ${item.position}<br><small>${item.reason}</small></li>`).join('')}
+                    </ul>
+                    <p><strong>布局建议：</strong>${stepBData.layout}</p>
+                `;
+                document.getElementById('stepBResult').style.display = 'block';
+                
+                log(`✅ 步骤B完成，生成了 ${stepBData.itemsToAdd.length} 条风水建议`);
+                document.getElementById('step3').classList.add('completed');
+                document.getElementById('stepCBtn').disabled = false;
+            } catch (error) {
+                log(`❌ 步骤B错误: ${error.message}`);
+            } finally {
+                document.getElementById('stepBBtn').disabled = false;
+            }
+        });
+
+        // 模拟步骤C - 图像生成
+        document.getElementById('stepCBtn').addEventListener('click', async () => {
+            log('🔄 运行步骤C（图像生成）...');
+            log(`📎 使用参考图URL: ${uploadedImageUrl}`);
+            document.getElementById('stepCBtn').disabled = true;
+            document.getElementById('step4').classList.add('active');
+
+            try {
+                // 模拟调用生成接口
+                const response = await fetch('http://localhost:3001/api/fengshui/generate-ref', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        originalImageUrl: uploadedImageUrl,
+                        fengshuiAdvice: stepBData,
+                        providerCId: 'Doubao',
+                        prompt: `在保持原图不改变风格与布局的基础上，仅添加或调整以下元素：${stepBData.itemsToAdd.map(item => `${item.item}(${item.position})`).join(',')}`
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    log(`✅ 步骤C完成！生成图片: ${result.imageUrl}`);
+                    document.getElementById('stepCResult').innerHTML = `
+                        <h4>生成结果：</h4>
+                        <img src="${result.imageUrl}" class="image-preview" alt="生成结果">
+                        <p><strong>图床状态：</strong>${result.hosted ? '使用公网URL' : '使用本地URL'}</p>
+                        <p><strong>参考图：</strong>基于原图进行风水元素调整</p>
+                    `;
+                    document.getElementById('stepCResult').style.display = 'block';
+                    document.getElementById('step4').classList.add('completed');
+                } else {
+                    log(`❌ 生成失败: ${result.error}`);
+                }
+            } catch (error) {
+                log(`❌ 步骤C错误: ${error.message}`);
+            } finally {
+                document.getElementById('stepCBtn').disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LocalStorage 调试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        pre { background: #f4f4f4; padding: 10px; border-radius: 5px; overflow-x: auto; }
+        button { margin: 5px; padding: 10px 15px; cursor: pointer; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>LocalStorage 调试工具</h1>
+        
+        <h2>当前存储的提供商配置：</h2>
+        <pre id="providers">加载中...</pre>
+        
+        <h2>当前存储的预设配置：</h2>
+        <pre id="presets">加载中...</pre>
+        
+        <div>
+            <button onclick="loadData()">刷新数据</button>
+            <button onclick="clearProviders()">清除提供商配置</button>
+            <button onclick="clearPresets()">清除预设配置</button>
+            <button onclick="setTestData()">设置测试数据</button>
+        </div>
+        
+        <div id="status"></div>
+    </div>
+
+    <script>
+        const PROVIDERS_KEY = 'airooter_providers';
+        const PRESETS_KEY = 'airooter_presets';
+
+        function loadData() {
+            try {
+                const providers = localStorage.getItem(PROVIDERS_KEY);
+                const presets = localStorage.getItem(PRESETS_KEY);
+                
+                document.getElementById('providers').textContent = providers || '无数据';
+                document.getElementById('presets').textContent = presets || '无数据';
+                
+                showStatus('数据加载成功', 'success');
+            } catch (e) {
+                showStatus('加载失败: ' + e.message, 'error');
+            }
+        }
+
+        function clearProviders() {
+            try {
+                localStorage.removeItem(PROVIDERS_KEY);
+                loadData();
+                showStatus('提供商配置已清除', 'success');
+            } catch (e) {
+                showStatus('清除失败: ' + e.message, 'error');
+            }
+        }
+
+        function clearPresets() {
+            try {
+                localStorage.removeItem(PRESETS_KEY);
+                loadData();
+                showStatus('预设配置已清除', 'success');
+            } catch (e) {
+                showStatus('清除失败: ' + e.message, 'error');
+            }
+        }
+
+        function setTestData() {
+            try {
+                const testProviders = [
+                    {
+                        id: 'test-provider-1',
+                        name: '测试提供商1',
+                        enabled: true,
+                        type: 'openai-compat',
+                        params: {
+                            system: '测试系统提示词',
+                            baseURL: 'https://api.openai.com/v1',
+                            path: '/chat/completions',
+                            model: 'gpt-3.5-turbo',
+                            temperature: 0.7,
+                            top_p: 1,
+                            max_tokens: 1024,
+                            apiKey: 'sk-test123'
+                        }
+                    }
+                ];
+                
+                localStorage.setItem(PROVIDERS_KEY, JSON.stringify(testProviders));
+                loadData();
+                showStatus('测试数据已设置', 'success');
+            } catch (e) {
+                showStatus('设置失败: ' + e.message, 'error');
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = `<p class="${type}">${message}</p>`;
+            setTimeout(() => {
+                statusDiv.innerHTML = '';
+            }, 3000);
+        }
+
+        // 页面加载时自动刷新数据
+        loadData();
+    </script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "advice": [
+    "床头保持整洁，提升休息质量",
+    "书桌靠窗增强采光与工作效率"
+  ],
+  "itemsToAdd": [
+    {
+      "item": "植物",
+      "reason": "提升生气",
+      "area": "角落",
+      "direction": "east",
+      "style": "现代",
+      "color": "绿色",
+      "size": "中",
+      "material": "自然"
+    },
+    {
+      "item": "地毯",
+      "reason": "提升温馨感",
+      "area": "中心",
+      "direction": "center",
+      "style": "简约",
+      "color": "米色",
+      "size": "中",
+      "material": "纤维"
+    }
+  ]
+}

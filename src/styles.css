@@ -1,0 +1,2 @@
+html, body, #root { height: 100%; margin: 0; }
+/* 使用 MUI light 主题，去掉深色玻璃背景，提升可读性 */
