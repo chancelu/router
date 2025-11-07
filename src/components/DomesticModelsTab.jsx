@@ -89,7 +89,7 @@ const ProviderCard = ({ provider, result, onRun, onCopy, onRetry }) => {
   )
 }
 
-export default function DomesticModelsTab() {
+export default function DomesticModelsTab({ notify }) {
   const { providers, running, results, setRunning, setResults } = useStore()
   
   const [prompt, setPrompt] = useState('')
@@ -124,7 +124,7 @@ export default function DomesticModelsTab() {
     setRunning(true)
     const provider = providers.find(p => p.id === providerId)
     if (!provider) {
-      alert('请先配置对应的模型提供商')
+      notify ? notify('请先配置对应的模型提供商', 'warning') : alert('请先配置对应的模型提供商')
       setRunning(false)
       return
     }
@@ -170,7 +170,8 @@ export default function DomesticModelsTab() {
       setResults(prev => prev.map(r => r.id === providerId ? result : r))
     } catch (error) {
       console.error('运行失败:', error)
-      alert('运行失败: ' + error.message)
+      if (notify) notify('运行失败: ' + error.message, 'error')
+      else alert('运行失败: ' + error.message)
     } finally {
       setRunning(false)
     }
@@ -188,7 +189,8 @@ export default function DomesticModelsTab() {
   // 复制结果
   const copyResult = (text) => {
     navigator.clipboard.writeText(text).then(() => {
-      alert('结果已复制到剪贴板')
+      if (notify) notify('结果已复制到剪贴板', 'success')
+      else alert('结果已复制到剪贴板')
     })
   }
 

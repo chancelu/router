@@ -8,8 +8,21 @@ import fetch from 'node-fetch'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const uploadDir = path.join(__dirname, '..', 'uploads')
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir)
+// Vercel 使用临时目录进行读写
+const isVercel = process.env.VERCEL === '1' || !!process.env.NOW_REGION
+const uploadDir = isVercel ? '/tmp/uploads' : path.join(__dirname, '..', 'uploads')
+if (!fs.existsSync(uploadDir)) { try { fs.mkdirSync(uploadDir, { recursive: true }) } catch (e) { console.warn('[uploads] mkdir failed', e?.message || e) } }
+
+// 依据请求动态推断 Origin（优先使用代理头），用于生成绝对 URL
+function getOrigin(req) {
+  try {
+    const xfProto = req.headers['x-forwarded-proto'] || req.headers['x-forwarded-protocol']
+    const host = req.headers['x-forwarded-host'] || req.headers.host
+    const proto = Array.isArray(xfProto) ? xfProto[0] : (xfProto || (isVercel ? 'https' : 'http'))
+    if (host) return `${proto}://${host}`
+  } catch {}
+  return process.env.PUBLIC_SERVER_ORIGIN || `http://localhost:${process.env.PORT || 3001}`
+}
 
 // 上传Base64图片，保存到服务器本地并返回URL（绝对URL）
 export async function uploadBase64(req, res) {
@@ -22,7 +35,7 @@ export async function uploadBase64(req, res) {
     const buf = Buffer.from(b64, 'base64')
     const filePath = path.join(uploadDir, name)
     fs.writeFileSync(filePath, buf)
-    const origin = process.env.PUBLIC_SERVER_ORIGIN || `http://localhost:${process.env.PORT || 3001}`
+    const origin = getOrigin(req)
     const localUrl = `${origin}/uploads/${name}`
     let publicUrl = null
     try {
@@ -46,7 +59,6 @@ export async function analyzeImage(req, res) {
     if (!urlOrData) return res.status(400).json({ error: 'missing imageUrl or imageDataUrl' })
 
     const isDataUrl = typeof urlOrData === 'string' && urlOrData.startsWith('data:image/')
-    const sourceType = isDataUrl ? 'dataUrl' : 'url'
     const sys = system || '你是室内空间视觉理解与方位提取专家...'
     const userPrompt = prompt || '请分析这张图片，提取关键元素、空间布局与方位信息，并用上述 JSON 模板输出，不要夹杂说明文字。'
 
@@ -56,9 +68,10 @@ export async function analyzeImage(req, res) {
       return res.json({ output: out.output })
     }
 
-    // Gemini 无法直接抓取外链图片：在服务端将 URL 转为 dataURL 以内联传递
-    const origin = process.env.PUBLIC_SERVER_ORIGIN || `http://localhost:${process.env.PORT || 3001}`
+    const origin = getOrigin(req)
     let resolvedImage = urlOrData
+
+    // Gemini 无法直接抓取外链图片：在服务端将 URL 转为 dataURL 以内联传递
     if ((provider?.type || '').toLowerCase() === 'gemini' && !isDataUrl && typeof urlOrData === 'string') {
       try {
         const absUrl = urlOrData.startsWith('/uploads/') ? `${origin}${urlOrData}` : urlOrData
@@ -96,7 +109,6 @@ export async function analyzeImage(req, res) {
             console.warn('[StepA] Doubao image host failed, fallback to local:', hostErr?.message || hostErr)
           }
           if (!hostedUrl) {
-            // 回落到本地静态URL（注意：豆包可能无法下载本地URL）
             const filePath = path.join(uploadDir, name)
             fs.writeFileSync(filePath, Buffer.from(b64, 'base64'))
             resolvedImage = `${origin}/uploads/${name}`
@@ -143,6 +155,7 @@ export async function analyzeImage(req, res) {
         providerResponse: e?.providerResponse,
       }
     }
+    console.warn('[StepA] failed:', payload)
     return res.status(status).json(payload)
   }
 }
@@ -161,7 +174,6 @@ export async function adviseFengshui(req, res) {
       return res.json({ output: out.output })
     }
 
-    // 统一校验 provider 及其参数，规整 baseURL/path
     const params = { ...(provider?.params || {}) }
     if (typeof params.baseURL === 'string') {
       params.baseURL = params.baseURL.trim().replace(/^ttps:\/\//i, 'https://').replace(/^ttp:\/\//i, 'http://')
@@ -173,7 +185,6 @@ export async function adviseFengshui(req, res) {
     }
     const safeProvider = { ...(provider || {}), params }
 
-    // 强制步骤B走文本聊天接口，避免误用图像生成路径
     if ((safeProvider?.type || '').toLowerCase() === 'openai-compat') {
       const pth = String(safeProvider.params?.path || '')
       if (!pth || /images\/generations/i.test(pth)) {

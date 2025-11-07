@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { 
   Box, TextField, Button, Grid, Card, CardContent, Typography, 
   Stack, Alert, Select, MenuItem, Stepper, Step, StepLabel,
-  CircularProgress, Chip, IconButton, Tooltip, Paper, FormControl, InputLabel
+  CircularProgress, Chip, IconButton, Tooltip, Paper, FormControl, InputLabel, Snackbar
 } from '@mui/material'
 import { useStore } from '../store'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
@@ -39,6 +39,11 @@ export default function FengshuiAnalysisTab() {
   const [fengshuiAdvice, setFengshuiAdvice] = useState('')
   const [generatedImage, setGeneratedImage] = useState(null)
   const [stepErrors, setStepErrors] = useState({})
+  
+  // 非阻塞通知（替换 alert）
+  const [snack, setSnack] = useState({ open: false, message: '', severity: 'info' })
+  const notify = (message, severity = 'info') => setSnack({ open: true, message: String(message || ''), severity })
+  const closeSnack = () => setSnack(s => ({ ...s, open: false }))
   
   // 提供商选择
   const [providerAId, setProviderAId] = useState('')
@@ -94,7 +99,7 @@ export default function FengshuiAnalysisTab() {
     promptC: 'fs_promptC'
   }
   const saveConfig = (key, value) => {
-    try { localStorage.setItem(key, value || ''); } catch (e) { console.warn('saveConfig failed', e) }
+    try { localStorage.setItem(key, value || ''); notify('已保存配置', 'success') } catch (e) { console.warn('saveConfig failed', e) }
   }
   useEffect(() => {
     try {
@@ -122,6 +127,7 @@ export default function FengshuiAnalysisTab() {
       })
       setActiveStep(1)
       setStepErrors({})
+      notify('图片已选择，准备识别', 'info')
     }
     reader.readAsDataURL(file)
   }
@@ -130,7 +136,7 @@ export default function FengshuiAnalysisTab() {
   const runStepA = async () => {
     const isUrl = imageSourceType === 'url'
     if ((isUrl && !imageUrl) || (!isUrl && !uploadedImage) || !providerAId) {
-      alert(isUrl ? '请输入公网图片URL并选择识别模型' : '请先上传图片并选择识别模型')
+      notify(isUrl ? '请输入公网图片URL并选择识别模型' : '请先上传图片并选择识别模型', 'warning')
       return null
     }
   
@@ -169,11 +175,12 @@ export default function FengshuiAnalysisTab() {
       console.log('[StepA] output length:', (output||'').length)
       setRecognizedContent(output)
       setActiveStep(2)
+      notify('步骤A完成', 'success')
       return output
     } catch (error) {
       console.error('步骤A失败:', error)
       setStepErrors(prev => ({ ...prev, a: error.message }))
-      alert('图片识别失败: ' + error.message)
+      notify('图片识别失败: ' + error.message, 'error')
       return null
     } finally {
       setRunning(false)
@@ -182,21 +189,20 @@ export default function FengshuiAnalysisTab() {
 
   // 步骤B：风水分析（可接收 A 的输出作为覆盖，返回建议）
   const runStepB = async (elementsOverride = null) => {
-    // 如果是点击事件传入，忽略它，改用 recognizedContent
     if (elementsOverride && (elementsOverride.nativeEvent || elementsOverride.target || elementsOverride.currentTarget)) {
       console.warn('[StepB] received click event, ignoring elementsOverride')
       elementsOverride = null
     }
     const imageElements = elementsOverride ?? recognizedContent
     if (!imageElements || !providerBId) {
-      alert('请先完成图片识别并选择分析模型')
+      notify('请先完成图片识别并选择分析模型', 'warning')
       return null
     }
 
     // 修复：定义并校验步骤B的 provider
     const provider = providers.find(p => p.id === providerBId)
     if (!provider) {
-      alert('未找到所选分析模型，请重新选择')
+      notify('未找到所选分析模型，请重新选择', 'warning')
       return null
     }
 
@@ -224,13 +230,19 @@ export default function FengshuiAnalysisTab() {
       const info = []
       if (json?.debug?.providerUrl) info.push(`接口: ${json.debug.providerUrl}`)
       if (json?.debug?.providerResponse) info.push(`响应: ${String(json.debug.providerResponse).slice(0, 200)}`)
-      throw new Error((json.error || '风水分析失败') + (info.length ? '\n' + info.join('\n') : ''))
+      const msg = (json.error || '风水分析失败') + (info.length ? '\n' + info.join('\n') : '')
+      setStepErrors(prev => ({ ...prev, b: msg }))
+      notify(msg, 'error')
+      clearTimeout(timeout)
+      return null
     }
 
     const { output } = json
     console.log('[StepB] output length:', (output||'').length)
     setFengshuiAdvice(output)
     setActiveStep(3)
+    notify('步骤B完成', 'success')
+    clearTimeout(timeout)
     return output
   }
 
@@ -254,10 +266,10 @@ export default function FengshuiAnalysisTab() {
     }
     console.log('[StepC] precheck:', precheck)
 
-    if (!precheck.hasAdvice) { alert('请先完成风水分析：结果为空'); return }
-    if (!providerCId) { alert('请先选择生成模型'); return }
-    if (!precheck.providerFound) { alert('未找到所选生成模型，请重新选择'); return }
-    if (!src) { alert('未提供原图：请上传图片或填写公网URL'); return }
+    if (!precheck.hasAdvice) { notify('请先完成风水分析：结果为空', 'warning'); return }
+    if (!providerCId) { notify('请先选择生成模型', 'warning'); return }
+    if (!precheck.providerFound) { notify('未找到所选生成模型，请重新选择', 'warning'); return }
+    if (!src) { notify('未提供原图：请上传图片或填写公网URL', 'warning'); return }
 
     // 解析 B 的输出为 itemsToAdd（增强容错：从非纯JSON文本中提取 JSON 片段，并兼容中文键）
     let itemsToAdd = []
@@ -322,7 +334,11 @@ export default function FengshuiAnalysisTab() {
         const info = []
         if (json?.debug?.providerUrl) info.push(`接口: ${json.debug.providerUrl}`)
         if (json?.debug?.providerResponse) info.push(`响应: ${String(json.debug.providerResponse).slice(0, 200)}`)
-        throw new Error((json.error || '图片生成失败') + (info.length ? '\n' + info.join('\n') : ''))
+        const msg = (json.error || '图片生成失败') + (info.length ? '\n' + info.join('\n') : '')
+        setStepErrors(prev => ({ ...prev, c: msg }))
+        notify(msg, 'error')
+        clearTimeout(timeout)
+        return
       }
 
       const genUrl = json.imageUrl || ''
@@ -330,14 +346,15 @@ export default function FengshuiAnalysisTab() {
       setGeneratedImage(genUrl)
       setActiveStep(4)
       console.log('[StepC] success url:', genUrl)
+      notify('步骤C完成', 'success')
     } catch (error) {
       console.error('步骤C失败:', error)
       if (error?.name === 'AbortError') {
         setStepErrors(prev => ({ ...prev, c: '请求超时（>120秒），请重试或更换生成模型' }))
-        alert('图片生成请求超时（>120秒）。请重试或更换模型')
+        notify('图片生成请求超时（>120秒）。请重试或更换模型', 'warning')
       } else {
         setStepErrors(prev => ({ ...prev, c: error?.message || '未知错误' }))
-        alert('图片生成失败: ' + (error?.message || '未知错误'))
+        notify('图片生成失败: ' + (error?.message || '未知错误'), 'error')
       }
     } finally {
       clearTimeout(timeout)
@@ -348,12 +365,12 @@ export default function FengshuiAnalysisTab() {
   // 一键运行所有步骤（串联使用返回值，避免状态未同步导致跳步）
   const runAllSteps = async () => {
     if (!uploadedImage && !imageUrl) {
-      alert('请先上传图片或填写URL')
+      notify('请先上传图片或填写URL', 'warning')
       return
     }
     
     if (!providerAId || !providerBId || !providerCId) {
-      alert('请为三个步骤都选择对应的模型提供商')
+      notify('请为三个步骤都选择对应的模型提供商', 'warning')
       return
     }
 
@@ -377,6 +394,7 @@ export default function FengshuiAnalysisTab() {
     setFengshuiAdvice('')
     setGeneratedImage(null)
     setStepErrors({})
+    notify('已重置', 'info')
   }
 
   // 下载生成的图片
@@ -386,6 +404,7 @@ export default function FengshuiAnalysisTab() {
       link.href = generatedImage
       link.download = `fengshui_generated_${Date.now()}.png`
       link.click()
+      notify('图片已下载', 'success')
     }
   }
 
@@ -394,6 +413,13 @@ export default function FengshuiAnalysisTab() {
       <Alert severity="info" sx={{ mb: 3 }}>
         风水图片分析：上传室内图片，AI将识别空间布局，提供风水建议，并生成优化后的参考图
       </Alert>
+
+      {/* 非阻塞通知 */}
+      <Snackbar open={snack.open} autoHideDuration={4000} onClose={closeSnack} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
+        <Alert onClose={closeSnack} severity={snack.severity} sx={{ width: '100%' }}>
+          {snack.message}
+        </Alert>
+      </Snackbar>
 
       {/* 步骤指示器 */}
       <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: 4 }}>
@@ -588,12 +614,12 @@ export default function FengshuiAnalysisTab() {
 
                 <Typography variant="caption">B 的 System</Typography>
                 <TextField fullWidth multiline minRows={2} value={systemPromptB} onChange={(e)=>setSystemPromptB(e.target.value)} sx={{ mb: 1 }} />
-                <Button size="small" variant="outlined" onClick={()=>saveConfig(LS_KEYS.systemPromptB, systemPromptB)} sx={{ mb: 2 }}>保存 B 的 System</Button>
+                <Button size="小" variant="outlined" onClick={()=>saveConfig(LS_KEYS.systemPromptB, systemPromptB)} sx={{ mb: 2 }}>保存 B 的 System</Button>
                 <TextField fullWidth multiline minRows={2} value={promptB} onChange={(e)=>{setPromptB(e.target.value); setPromptBEdited(String(e.target.value).trim().length > 0)}} label="B 的 Prompt（默认基于 A 输出自动生成）" sx={{ mb: 1 }} />
-                <Button size="small" variant="outlined" onClick={()=>saveConfig(LS_KEYS.promptB, promptB)} sx={{ mb: 2 }}>保存 B 的 Prompt</Button>
+                <Button size="小" variant="outlined" onClick={()=>saveConfig(LS_KEYS.promptB, promptB)} sx={{ mb: 2 }}>保存 B 的 Prompt</Button>
 
                 <TextField fullWidth multiline minRows={2} value={promptC} onChange={(e)=>{setPromptC(e.target.value); setPromptCEdited(String(e.target.value).trim().length > 0)}} label="C 的 Prompt（默认基于 B 输出自动生成）" sx={{ mb: 1 }} />
-                <Button size="small" variant="outlined" onClick={()=>saveConfig(LS_KEYS.promptC, promptC)} sx={{ mb: 2 }}>保存 C 的 Prompt</Button>
+                <Button size="小" variant="outlined" onClick={()=>saveConfig(LS_KEYS.promptC, promptC)} sx={{ mb: 2 }}>保存 C 的 Prompt</Button>
               </CardContent>
             </Card>
 

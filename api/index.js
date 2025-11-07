@@ -20,10 +20,15 @@ app.use(cors({
 }))
 app.use(express.json({ limit: '50mb' }))
 
-// 创建上传目录
-const uploadsDir = join(__dirname, '..', 'server', 'uploads')
+// 创建上传目录（Vercel 使用 /tmp/uploads）
+const isVercel = process.env.VERCEL === '1' || !!process.env.NOW_REGION
+const uploadsDir = isVercel ? '/tmp/uploads' : join(__dirname, '..', 'server', 'uploads')
 if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true })
+  try {
+    fs.mkdirSync(uploadsDir, { recursive: true })
+  } catch (e) {
+    console.warn('[uploads] mkdir failed', e?.message || e)
+  }
 }
 
 // 导入路由处理函数
@@ -43,5 +48,5 @@ app.get('/api/openrouter/models', listOpenRouterModels)
 // 静态文件服务
 app.use('/uploads', express.static(uploadsDir))
 
-// Vercel需要导出为默认函数
-export default app
+// Vercel需要导出为默认函数（确保为处理函数）
+export default (req, res) => app(req, res)
