@@ -39,6 +39,7 @@ export default function FengshuiAnalysisTab() {
   const [fengshuiAdvice, setFengshuiAdvice] = useState('')
   const [generatedImage, setGeneratedImage] = useState(null)
   const [stepErrors, setStepErrors] = useState({})
+  const [userInput, setUserInput] = useState('') // 新增：用户补充信息
   
   // 非阻塞通知（替换 alert）
   const [snack, setSnack] = useState({ open: false, message: '', severity: 'info' })
@@ -189,7 +190,7 @@ export default function FengshuiAnalysisTab() {
   }
 
   // 步骤B：风水分析（可接收 A 的输出作为覆盖，返回建议）
-  const runStepB = async (elementsOverride = null) => {
+  const runStepB = async (elementsOverride = null, userInputOverride = null) => {
     if (elementsOverride && (elementsOverride.nativeEvent || elementsOverride.target || elementsOverride.currentTarget)) {
       console.warn('[StepB] received click event, ignoring elementsOverride')
       elementsOverride = null
@@ -211,54 +212,66 @@ export default function FengshuiAnalysisTab() {
     setStepErrors(prev => ({ ...prev, b: null }))
     const controller = new AbortController()
     const timeoutMsB = 120000 // 提升到120秒，避免长耗时分析被中断
-     const timeout = setTimeout(() => controller.abort(), timeoutMsB)
+    const timeout = setTimeout(() => controller.abort(), timeoutMsB)
 
-     try {
-       const response = await fetch(`${API_ORIGIN || ''}/api/fengshui/advise`, {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({
-           imageElements,
-           system: systemPromptB,
-           prompt: promptB,
-           provider: {
-             ...provider,
-             params: { ...provider.params }
-           }
-         }),
-         signal: controller.signal
-       })
+    try {
+      // 诊断：打印传递给后端的关键参数
+      console.log('[StepB] request payload', {
+        providerBId,
+        promptBLen: String(promptB || '').length,
+        promptBEdited,
+        userInputOverride: userInputOverride || null,
+        userInputLocal: userInput || null,
+        userInputLen: String(userInputOverride || userInput || '').length,
+        imageElementsLen: typeof imageElements === 'string' ? imageElements.length : JSON.stringify(imageElements || '').length,
+      })
 
-       const json = await response.json().catch(() => ({}))
-       if (!response.ok) {
-         const info = []
-         if (json?.debug?.providerUrl) info.push(`接口: ${json.debug.providerUrl}`)
-         if (json?.debug?.providerResponse) info.push(`响应: ${String(json.debug.providerResponse).slice(0, 200)}`)
-         info.unshift(`状态码: ${response.status}`)
-         info.unshift(`路径: /api/fengshui/advise`)
-         const msg = (json.error || '风水分析失败') + (info.length ? '\n' + info.join('\n') : '')
-         setStepErrors(prev => ({ ...prev, b: msg }))
-         notify(msg, 'error')
-         clearTimeout(timeout)
-         return null
-       }
+      const response = await fetch(`${API_ORIGIN || ''}/api/fengshui/advise`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageElements,
+          system: systemPromptB,
+          prompt: promptB,
+          userInput: userInputOverride || userInput, // 传递用户输入
+          provider: {
+            ...provider,
+            params: { ...provider.params }
+          }
+        }),
+        signal: controller.signal
+      })
 
-       const { output } = json
-       console.log('[StepB] output length:', (output||'').length)
-       setFengshuiAdvice(output)
-       setActiveStep(3)
-       notify('步骤B完成', 'success')
-       clearTimeout(timeout)
-       return output
-     } catch (error) {
-       console.error('步骤B失败:', error)
-       setStepErrors(prev => ({ ...prev, b: error.message }))
-       notify('风水分析失败: ' + error.message, 'error')
-       return null
-     } finally {
-       clearTimeout(timeout)
-       setRunning(false)
-     }
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const info = []
+        if (json?.debug?.providerUrl) info.push(`接口: ${json.debug.providerUrl}`)
+        if (json?.debug?.providerResponse) info.push(`响应: ${String(json.debug.providerResponse).slice(0, 200)}`)
+        info.unshift(`状态码: ${response.status}`)
+        info.unshift(`路径: /api/fengshui/advise`)
+        const msg = (json.error || '风水分析失败') + (info.length ? '\n' + info.join('\n') : '')
+        setStepErrors(prev => ({ ...prev, b: msg }))
+        notify(msg, 'error')
+        clearTimeout(timeout)
+        return null
+      }
+
+      const { output } = json
+      console.log('[StepB] output length:', (output || '').length)
+      setFengshuiAdvice(output)
+      setActiveStep(3)
+      notify('步骤B完成', 'success')
+      clearTimeout(timeout)
+      return output
+    } catch (error) {
+      console.error('步骤B失败:', error)
+      setStepErrors(prev => ({ ...prev, b: error.message }))
+      notify('风水分析失败: ' + error.message, 'error')
+      return null
+    } finally {
+      clearTimeout(timeout)
+      setRunning(false)
+    }
   }
 
   // 步骤C：图片生成（可接收 B 的输出作为覆盖，避免状态未同步）
@@ -397,7 +410,7 @@ export default function FengshuiAnalysisTab() {
     setActiveStep(1)
     const aOut = await runStepA()
     if (aOut) {
-      const bOut = await runStepB(aOut)
+      const bOut = await runStepB(aOut, userInput) // 传递用户输入
       if (bOut) {
         await runStepC(bOut)
       }
@@ -597,7 +610,7 @@ export default function FengshuiAnalysisTab() {
             </Button>
             <Button
               variant="outlined"
-              onClick={runStepB}
+              onClick={() => runStepB(null, userInput)}
               disabled={running || !recognizedContent || !providerBId}
               sx={{ flex: 1 }}
             >
@@ -634,7 +647,22 @@ export default function FengshuiAnalysisTab() {
 
                 <Typography variant="caption">B 的 System</Typography>
                 <TextField fullWidth multiline minRows={2} value={systemPromptB} onChange={(e)=>setSystemPromptB(e.target.value)} sx={{ mb: 1 }} />
-                <Button size="小" variant="outlined" onClick={()=>saveConfig(LS_KEYS.systemPromptB, systemPromptB)} sx={{ mb: 2 }}>保存 B 的 System</Button>
+                <Button size="small" variant="outlined" onClick={()=>saveConfig(LS_KEYS.systemPromptB, systemPromptB)} sx={{ mb: 2 }}>保存 B 的 System</Button>
+                
+                {/* 用户补充信息输入框 */}
+                <Typography variant="caption" sx={{ display: 'block', mb: 1 }}>用户补充信息（可选）</Typography>
+                <TextField 
+                  fullWidth 
+                  multiline 
+                  minRows={3}
+                  maxRows={6}
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  placeholder="请输入您对风水分析的特殊要求或补充信息（如：我特别关注卧室的风水布局，或者希望增加财运）..."
+                  variant="outlined"
+                  sx={{ mb: 2 }}
+                />
+                
                 <TextField fullWidth multiline minRows={2} value={promptB} onChange={(e)=>{setPromptB(e.target.value); setPromptBEdited(String(e.target.value).trim().length > 0)}} label="B 的 Prompt（默认基于 A 输出自动生成）" sx={{ mb: 1 }} />
                 <Button size="小" variant="outlined" onClick={()=>saveConfig(LS_KEYS.promptB, promptB)} sx={{ mb: 2 }}>保存 B 的 Prompt</Button>
 

@@ -64,13 +64,19 @@ export default function App() {
   const [bPromptEdited, setBPromptEdited] = useState(false)
   const [cPromptEdited, setCPromptEdited] = useState(false)
   
+  // 新增：A/B 之间的用户输入状态
+  const [userInput, setUserInput] = useState('')
+  const [showUserInput, setShowUserInput] = useState(false)
+  const [userInputSubmitted, setUserInputSubmitted] = useState(false)
+  
   // 根据 A 输出动态生成 B 的默认 Prompt（未编辑时）
   useEffect(() => {
     if (!bPromptEdited) {
       const base = typeof aOutput === 'string' ? aOutput : JSON.stringify(aOutput || '')
-      setBPrompt(`输入元素：\n${base}\n\n请按 JSON 模板输出风水建议与应添置物品清单。`)
+      const userInputPart = userInputSubmitted && userInput.trim() ? `\n用户补充信息：${userInput.trim()}` : ''
+      setBPrompt(`输入元素：\n${base}${userInputPart}\n\n请按 JSON 模板输出风水建议与应添置物品清单。`)
     }
-  }, [aOutput, bPromptEdited])
+  }, [aOutput, userInput, userInputSubmitted, bPromptEdited])
 
   // 根据 B 输出与风格提示动态生成 C 的默认 Prompt（未编辑时）
   useEffect(() => {
@@ -108,6 +114,10 @@ export default function App() {
       setRunning(true)
       const { data } = await axios.post('/api/fengshui/analyze-image', body)
       setAOutput(data?.output || data?.text || JSON.stringify(data, null, 2))
+      // 显示用户输入界面
+      setShowUserInput(true)
+      setUserInputSubmitted(false)
+      setUserInput('')
     } catch (e) {
       const status = e?.response?.status
       const payload = e?.response?.data || {}
@@ -129,7 +139,13 @@ export default function App() {
     setRunning(true)
     try {
       console.log('[App] runB start', { provider: { id: provider.id, name: provider.name }, params: provider.params })
-      const body = { imageElements: aOutput, system: bSystem, prompt: bPrompt, provider }
+      const body = { 
+        imageElements: aOutput, 
+        system: bSystem, 
+        prompt: bPrompt, 
+        provider,
+        userInput: userInputSubmitted ? userInput : undefined
+      }
       const resp = await fetch('/api/fengshui/advise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const json = await resp.json().catch(() => ({}))
       if (!resp.ok) {
@@ -139,6 +155,8 @@ export default function App() {
         throw new Error((json.error || 'advise failed') + (info.length ? '\n' + info.join('\n') : ''))
       }
       setBOutput(json.output || '')
+      // 隐藏用户输入界面
+      setShowUserInput(false)
     } catch (e) { console.error(e); alert('风水分析失败: ' + (e?.message || '未知错误')); } finally { setRunning(false) }
   }
 
@@ -426,7 +444,7 @@ export default function App() {
 
             <Grid container spacing={2}>
               {providers.map(p => (
-                <Grid item xs={12} md={6} key={p.id}>
+                <Grid item xs={12} md={6}>
                   <Card variant="outlined">
                     <CardContent>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -527,6 +545,51 @@ export default function App() {
                   </CardContent>
                 </Card>
               </Grid>
+
+              {/* 用户输入步骤 - 新增 */}
+              {showUserInput && (
+                <Grid item xs={12} md={6}>
+                  <Card variant="outlined" sx={{ borderColor: 'primary.main', borderWidth: 2 }}>
+                    <CardContent>
+                      <Typography variant="subtitle1" color="primary">可选步骤：用户补充输入</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        您可以在此输入额外的要求或问题，这些信息将与图片识别结果一起传递给步骤B进行分析。如果不需要，可以直接跳过。
+                      </Typography>
+                      <TextField 
+                        fullWidth 
+                        multiline 
+                        minRows={4} 
+                        label="您的补充输入（可选）" 
+                        placeholder="例如：我特别关注卧室的风水布局，请重点分析..." 
+                        value={userInput} 
+                        onChange={e => setUserInput(e.target.value)} 
+                        sx={{ mb: 2 }} 
+                      />
+                      <Stack direction="row" spacing={1}>
+                        <Button 
+                          variant="contained" 
+                          onClick={() => {
+                            setUserInputSubmitted(true);
+                            setShowUserInput(false);
+                          }}
+                        >
+                          提交输入并继续
+                        </Button>
+                        <Button 
+                          variant="outlined" 
+                          onClick={() => {
+                            setUserInputSubmitted(false);
+                            setUserInput('');
+                            setShowUserInput(false);
+                          }}
+                        >
+                          跳过并继续
+                        </Button>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              )}
 
               <Grid item xs={12} md={6}>
                 <Card variant="outlined">

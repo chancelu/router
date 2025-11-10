@@ -163,10 +163,30 @@ export async function analyzeImage(req, res) {
 // 风水分析与物品清单（B）
 export async function adviseFengshui(req, res) {
   try {
-    const { imageElements, system, provider, prompt: promptOverride } = req.body || {}
+    const { imageElements, system, provider, prompt: promptOverride, userInput } = req.body || {}
     if (!imageElements) return res.status(400).json({ error: 'missing imageElements' })
     const sys = system || '你是专业风水顾问...'
-    const prompt = promptOverride || `输入元素：\n${typeof imageElements==='string'?imageElements:JSON.stringify(imageElements)}\n\n请按 JSON 模板输出风水建议与应添置物品清单。`
+
+    // 诊断：记录接收到的 userInput 与 promptOverride
+    console.log('[StepB] advise request', {
+      imageElementsLen: typeof imageElements === 'string' ? imageElements.length : JSON.stringify(imageElements || '').length,
+      hasPromptOverride: !!promptOverride,
+      promptOverrideLen: String(promptOverride || '').length,
+      userInputLen: String(userInput || '').length,
+      userInputPreview: String(userInput || '').slice(0, 50)
+    })
+    
+    // 构建提示词，包含用户输入（如果有）
+    let prompt
+    const userInputPart = userInput && String(userInput).trim() ? `\n用户补充信息：${String(userInput).trim()}` : ''
+    if (promptOverride) {
+      // 即使存在自定义 Prompt，也将用户补充信息拼接进去，避免丢失
+      prompt = `${promptOverride}${userInputPart}`
+    } else {
+      const base = typeof imageElements==='string'?imageElements:JSON.stringify(imageElements)
+      prompt = `输入元素：\n${base}${userInputPart}\n\n请按 JSON 模板输出风水建议与应添置物品清单。`
+    }
+    console.log('[StepB] advise prompt built', { promptLen: String(prompt || '').length })
 
     // mock: 仅在服务端环境变量开启时返回模拟建议
     if (process.env.MOCK_FENGSHUI === '1') {
