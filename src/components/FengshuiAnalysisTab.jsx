@@ -40,6 +40,7 @@ export default function FengshuiAnalysisTab() {
   const [generatedImage, setGeneratedImage] = useState(null)
   const [stepErrors, setStepErrors] = useState({})
   const [userInput, setUserInput] = useState('') // 新增：用户补充信息
+  const [userInputConfirmed, setUserInputConfirmed] = useState(false)
   
   // 非阻塞通知（替换 alert）
   const [snack, setSnack] = useState({ open: false, message: '', severity: 'info' })
@@ -141,7 +142,8 @@ export default function FengshuiAnalysisTab() {
       notify(isUrl ? '请输入公网图片URL并选择识别模型' : '请先上传图片并选择识别模型', 'warning')
       return null
     }
-  
+    // 运行A时重置确认状态，避免旧补充信息误用
+    setUserInputConfirmed(false)
     setRunning(true)
     setStepErrors(prev => ({ ...prev, a: null }))
     
@@ -189,6 +191,17 @@ export default function FengshuiAnalysisTab() {
     }
   }
 
+  // 确认用户补充信息（保存并提示）
+  const confirmUserInput = () => {
+    const val = String(userInput || '').trim()
+    if (!val) { notify('请输入补充信息后再确认', 'warning'); return }
+    try {
+      localStorage.setItem('fs_userInput', val)
+      setUserInputConfirmed(true)
+      notify('已确认补充信息，将在步骤B中使用', 'success')
+    } catch (e) { console.warn('confirmUserInput failed', e) }
+  }
+
   // 步骤B：风水分析（可接收 A 的输出作为覆盖，返回建议）
   const runStepB = async (elementsOverride = null, userInputOverride = null) => {
     if (elementsOverride && (elementsOverride.nativeEvent || elementsOverride.target || elementsOverride.currentTarget)) {
@@ -222,6 +235,7 @@ export default function FengshuiAnalysisTab() {
         promptBEdited,
         userInputOverride: userInputOverride || null,
         userInputLocal: userInput || null,
+        userInputConfirmed,
         userInputLen: String(userInputOverride || userInput || '').length,
         imageElementsLen: typeof imageElements === 'string' ? imageElements.length : JSON.stringify(imageElements || '').length,
       })
@@ -657,11 +671,25 @@ export default function FengshuiAnalysisTab() {
                   minRows={3}
                   maxRows={6}
                   value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
+                  onChange={(e) => { setUserInput(e.target.value); setUserInputConfirmed(false) }}
                   placeholder="请输入您对风水分析的特殊要求或补充信息（如：我特别关注卧室的风水布局，或者希望增加财运）..."
                   variant="outlined"
                   sx={{ mb: 2 }}
                 />
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+                  <Button 
+                    size="small" 
+                    variant={userInputConfirmed ? 'contained' : 'outlined'} 
+                    color={userInputConfirmed ? 'success' : 'primary'} 
+                    onClick={confirmUserInput}
+                    disabled={running}
+                  >
+                    {userInputConfirmed ? '已确认 ✓' : '确认补充信息'}
+                  </Button>
+                  <Typography variant="caption" color={userInputConfirmed ? 'success.main' : 'text.secondary'}>
+                    {userInputConfirmed ? '补充信息已保存，将包含在步骤B分析中' : '点击确认以保存并用于步骤B'}
+                  </Typography>
+                </Stack>
                 
                 <TextField fullWidth multiline minRows={2} value={promptB} onChange={(e)=>{setPromptB(e.target.value); setPromptBEdited(String(e.target.value).trim().length > 0)}} label="B 的 Prompt（默认基于 A 输出自动生成）" sx={{ mb: 1 }} />
                 <Button size="小" variant="outlined" onClick={()=>saveConfig(LS_KEYS.promptB, promptB)} sx={{ mb: 2 }}>保存 B 的 Prompt</Button>
