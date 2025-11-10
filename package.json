@@ -9,10 +9,11 @@
     "dev:web": "vite",
     "build": "vite build",
     "build:vercel": "npm run build && npm run prepare:api",
-    "prepare:api": "mkdir -p api && cp -r server api/",
+    "prepare:api": "rm -rf api/server && mkdir -p api && cp -R server api/",
     "start": "node server/index.js",
     "preview": "NODE_ENV=production node server/index.js",
-    "vercel-build": "npm run build"
+    "vercel-build": "npm run build && npm run prepare:api",
+    "check:env": "node scripts/check_env.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.925.0",

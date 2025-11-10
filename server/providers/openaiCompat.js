@@ -16,14 +16,11 @@ function resolveBrand(provider, baseURL) {
 function normalizeBaseURL(u) {
   if (!u) return u
   let s = String(u)
-  // remove spaces and newlines anywhere
   s = s.replace(/\s+/g, '')
-  // fix missing leading h
   s = s.replace(/^ttps:\/\//i, 'https://')
   s = s.replace(/^ttp:\/\//i, 'http://')
   s = s.trim()
   if (!/^https?:\/\//i.test(s)) s = 'https://' + s.replace(/^\/+/, '')
-  // remove trailing slash for clean concatenation
   s = s.replace(/\/$/, '')
   return s
 }
@@ -34,7 +31,6 @@ function normalizePath(p) {
   return s
 }
 
-// 统一的超时与重试封装
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 async function fetchWithTimeoutRetry(url, options, { timeoutMs = 20000, retries = 1, retryDelayMs = 500 } = {}) {
   let lastErr
@@ -60,7 +56,6 @@ async function fetchWithTimeoutRetry(url, options, { timeoutMs = 20000, retries 
   throw lastErr || new Error('fetch failed')
 }
 
-// 修复：始终保留 baseURL 的路径前缀，直接字符串拼接
 function safeJoinURL(baseURL, path) {
   const b = normalizeBaseURL(baseURL)
   const p = normalizePath(path)
@@ -68,7 +63,6 @@ function safeJoinURL(baseURL, path) {
   return `${b}${p}`
 }
 
-// ---- Mock 支持 ----
 const MOCK_PIXEL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII='
 function generateMockA() {
   return JSON.stringify({
@@ -99,8 +93,25 @@ function mockTextForPrompt(prompt) {
   return isB ? generateMockB() : generateMockA()
 }
 
+function normalizeDoubaoKey(k) {
+  if (!k) return k
+  let s = String(k).trim()
+  s = s.replace(/^['"]|['"]$/g, '') // remove surrounding quotes
+  s = s.replace(/\s+/g, '') // remove spaces/newlines
+  return s
+}
+
+function isInvalidDoubaoInlineKey(k) {
+  if (!k) return false
+  const s = String(k).trim()
+  if (/^sk-[A-Za-z0-9]/.test(s)) return true // OpenAI key
+  if (/^AIza[\w-]+/.test(s)) return true // Google key
+  if (/:/.test(s)) return true // AK:SK combo
+  if (/AKID|SK|AK\w{6,}/i.test(s)) return true // AK/SK hints
+  return false
+}
+
 export async function runOpenAICompat(provider, { prompt, system }) {
-  // Mock 仅在服务端环境变量开启时生效
   if (process.env.MOCK_FENGSHUI === '1') {
     return { output: mockTextForPrompt(prompt) }
   }
@@ -121,24 +132,38 @@ export async function runOpenAICompat(provider, { prompt, system }) {
     openai: process.env.OPENAI_API_KEY,
     deepseek: process.env.DEEPSEEK_API_KEY,
     qianwen: process.env.DASHSCOPE_API_KEY,
-    doubao: process.env.DOUDAO_API_KEY,
+    doubao: process.env.DOUBAO_API_KEY || process.env.DOUDAO_API_KEY,
     openrouter: process.env.OPENROUTER_API_KEY,
     azure: process.env.AZURE_OPENAI_API_KEY
   }
-  const apiKey = inlineKey || keyEnvMap[brand] || process.env.OPENAI_COMPAT_API_KEY
-  if (!apiKey) throw new Error('缺少 API Key: ' + brand)
+  // Guard: if inline key is invalid for Doubao, ignore it and prefer env var
+  if (brand === 'doubao' && inlineKey && isInvalidDoubaoInlineKey(inlineKey)) {
+    const pref = String(inlineKey).slice(0, 5)
+    console.warn('[Key] invalid inline key for doubao, will use env var instead', { pref, len: String(inlineKey).length })
+    inlineKey = undefined
+  }
+  let apiKey = inlineKey || keyEnvMap[brand] || process.env.OPENAI_COMPAT_API_KEY
+  apiKey = normalizeDoubaoKey(apiKey)
+  const keySource = inlineKey ? 'inline' : (keyEnvMap[brand] ? `env:${brand}` : (process.env.OPENAI_COMPAT_API_KEY ? 'env:compat' : 'none'))
+  if (!apiKey) {
+    console.warn('[Key] missing API key', { brand, source: keySource })
+    throw new Error('缺少 API Key: ' + brand)
+  }
+  if (brand === 'doubao') {
+    const prefix = apiKey.slice(0, 5)
+    const looksLikeOpenAI = /^sk-[A-Za-z0-9]/.test(apiKey)
+    const looksLikeAKSK = /[:]|AKID|SK|AK\w{6,}/i.test(apiKey)
+    console.log('[Key] doubao key in use', { source: keySource, len: apiKey.length, prefix, looksLikeOpenAI, looksLikeAKSK })
+  }
   const url = `${baseURL}${path}`
-  // ---- 修复：豆包视觉消息内容映射（保持 OpenAI 兼容格式）----
   let userContent = provider.__contentParts || prompt
   if (Array.isArray(userContent) && brand === 'doubao') {
     userContent = userContent.map((p) => {
       if (p && p.type === 'image_url') {
         const u = (p.image_url && (typeof p.image_url === 'string' ? p.image_url : p.image_url.url)) || ''
-        // Doubao 兼容模式支持 `image_url`，不使用 `input_image`
         return u ? { type: 'image_url', image_url: u } : p
       }
       if (p && p.type === 'text') {
-        // Doubao 兼容模式支持 `text`，不使用 `input_text`
         return { type: 'text', text: p.text }
       }
       return p
@@ -152,7 +177,6 @@ export async function runOpenAICompat(provider, { prompt, system }) {
     ].filter(Boolean),
   }
   const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }
-  // Doubao 文本/视觉识别都可能较慢：统一提升到 60s
   const timeoutMs = brand === 'doubao' ? 60000 : 30000
   const resp = await fetchWithTimeoutRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, { timeoutMs, retries: 1 })
   if (!resp.ok) {
@@ -169,7 +193,6 @@ export async function runOpenAICompat(provider, { prompt, system }) {
 }
 
 export async function runOpenAIImagesCompat(provider, { prompt, model, size = '1024x1024', images }) {
-  // Mock: 返回 1x1 像素 PNG（仅环境变量打开时）
   if (process.env.MOCK_FENGSHUI === '1') {
     return { b64: MOCK_PIXEL_PNG }
   }
@@ -178,20 +201,35 @@ export async function runOpenAIImagesCompat(provider, { prompt, model, size = '1
     if (provider.id === 'doubao') baseURL = 'https://ark.cn-beijing.volces.com/api/v3'
     else baseURL = 'https://api.openai.com/v1'
   }
+  const before = baseURL
   baseURL = normalizeBaseURL(baseURL)
+  console.log('runOpenAIImagesCompat baseURL normalize', { before, after: baseURL })
   const brand = resolveBrand(provider, baseURL)
   const keyEnvMap = {
     openai: process.env.OPENAI_API_KEY,
     deepseek: process.env.DEEPSEEK_API_KEY,
     qianwen: process.env.DASHSCOPE_API_KEY,
-    doubao: process.env.DOUDAO_API_KEY,
+    doubao: process.env.DOUBAO_API_KEY || process.env.DOUDAO_API_KEY,
     openrouter: process.env.OPENROUTER_API_KEY,
     azure: process.env.AZURE_OPENAI_API_KEY
   }
-  const apiKey = inlineKey || keyEnvMap[brand] || process.env.OPENAI_COMPAT_API_KEY
+  // Guard invalid inline key for Doubao images
+  if (brand === 'doubao' && inlineKey && isInvalidDoubaoInlineKey(inlineKey)) {
+    const pref = String(inlineKey).slice(0, 5)
+    console.warn('[Key] invalid inline key for doubao(images), will use env var instead', { pref, len: String(inlineKey).length })
+    inlineKey = undefined
+  }
+  let apiKey = inlineKey || keyEnvMap[brand] || process.env.OPENAI_COMPAT_API_KEY
+  apiKey = normalizeDoubaoKey(apiKey)
+  const keySource = inlineKey ? 'inline' : (keyEnvMap[brand] ? `env:${brand}` : (process.env.OPENAI_COMPAT_API_KEY ? 'env:compat' : 'none'))
   if (!apiKey) throw new Error('缺少 API Key: ' + brand)
+  if (brand === 'doubao') {
+    const prefix = apiKey.slice(0, 5)
+    const looksLikeOpenAI = /^sk-[A-Za-z0-9]/.test(apiKey)
+    const looksLikeAKSK = /[:]|AKID|SK|AK\w{6,}/i.test(apiKey)
+    console.log('[Key] doubao key in use (images)', { source: keySource, len: apiKey.length, prefix, looksLikeOpenAI, looksLikeAKSK })
+  }
   const finalModel = model || (provider.params && provider.params.model) || 'gpt-image-1'
-  // 豆包默认使用 2K 尺寸；其他兼容 OpenAI 的像素尺寸
   const finalSize = brand === 'doubao' && (size === '1024x1024' || !size) ? '2K' : size
   const rf = forcedRF || (brand === 'doubao' ? 'url' : 'b64_json')
   const url = `${baseURL}/images/generations`
@@ -209,7 +247,6 @@ export async function runOpenAIImagesCompat(provider, { prompt, model, size = '1
     throw err
   }
   const json = await resp.json()
-  // 兼容两种返回
   const b64 = json?.data?.[0]?.b64_json || ''
   const imgUrl = json?.data?.[0]?.url || ''
   if (imgUrl) return { url: imgUrl }
@@ -218,65 +255,4 @@ export async function runOpenAIImagesCompat(provider, { prompt, model, size = '1
 
 export async function streamOpenAICompat(provider, { prompt, system }, onDelta) {
   let { baseURL, model, temperature, top_p, max_tokens, path = '/chat/completions', apiKey: inlineKey, reasoning_effort } = provider.params || {}
-  if (!baseURL) {
-    if (provider.id === 'openai' || provider.id === 'openrouter' || provider.id === 'azure') baseURL = 'https://api.openai.com/v1'
-    else if (provider.id === 'deepseek') baseURL = 'https://api.deepseek.com/v1'
-    else if (provider.id === 'qianwen') baseURL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-    else if (provider.id === 'doubao') baseURL = 'https://ark.cn-beijing.volces.com/api/v3'
-    else baseURL = 'https://api.openai.com/v1'
-  }
-  baseURL = normalizeBaseURL(baseURL)
-  path = normalizePath(path)
-  const brand = resolveBrand(provider, baseURL)
-  const keyEnvMap = {
-    openai: process.env.OPENAI_API_KEY,
-    deepseek: process.env.DEEPSEEK_API_KEY,
-    qianwen: process.env.DASHSCOPE_API_KEY,
-    doubao: process.env.DOUDAO_API_KEY,
-    openrouter: process.env.OPENROUTER_API_KEY,
-    azure: process.env.AZURE_OPENAI_API_KEY
-  }
-  const apiKey = inlineKey || keyEnvMap[brand] || process.env.OPENAI_COMPAT_API_KEY
-  if (!apiKey) throw new Error('缺少 API Key: ' + brand)
-  const url = `${baseURL}${path}`
-  const body = {
-    model,
-    stream: true,
-    messages: [
-      system ? { role: 'system', content: system } : null,
-      { role: 'user', content: prompt }
-    ].filter(Boolean),
-  }
-  const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }
-  const resp = await fetchWithTimeoutRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, { timeoutMs: 30000, retries: 1 })
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    const err = new Error(`HTTP ${resp.status} for ${url}: ${text || 'fetch failed'}`)
-    err.httpStatus = resp.status
-    err.providerUrl = url
-    err.providerResponse = text
-    throw err
-  }
-  const reader = resp.body.getReader()
-  const decoder = new TextDecoder('utf-8')
-  let buffer = ''
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const parts = buffer.split('\n')
-    buffer = parts.pop() || ''
-    for (const line of parts) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('data:')) continue
-      const dataStr = trimmed.slice(5).trim()
-      if (dataStr === '[DONE]') { onDelta({ type: 'done' }); continue }
-      try {
-        const json = JSON.parse(dataStr)
-        const delta = json.choices?.[0]?.delta?.content || json.choices?.[0]?.text || ''
-        if (delta) onDelta({ type: 'delta', delta })
-        if (json.usage) onDelta({ type: 'usage', usage: json.usage })
-      } catch {}
-    }
-  }
 }

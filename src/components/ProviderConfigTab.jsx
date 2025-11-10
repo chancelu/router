@@ -40,6 +40,23 @@ import { useStore } from '../store'
     }
   }
 
+// 豆包提供商识别与密钥格式校验
+const isDoubaoProvider = (p) => {
+  const b = String(p?.params?.baseURL || '')
+  const name = String(p?.name || '')
+  const id = String(p?.id || '')
+  return b.includes('volces.com') || /doubao|豆包/i.test(name) || id.toLowerCase() === 'doubao'
+}
+const isLikelyValidDoubaoKey = (key) => {
+  const s = String(key || '').trim()
+  if (!s) return false
+  if (/\s/.test(s)) return false
+  // 允许常见前缀（AKTP/v1/tt-）或 UUID（豆包某些租户颁发）
+  const hasKnownPrefix = /^(AKTP|v1\.|tt-)/.test(s)
+  const looksUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+  return hasKnownPrefix || looksUUID || s.length >= 24
+}
+
   export default function ProviderConfigTab() {
     const { 
       system, providers, setSystem, setProviders, addProvider, removeProvider, saveProviders
@@ -251,7 +268,9 @@ import { useStore } from '../store'
 
                     <Grid container spacing={1} sx={{ mt: 1 }}>
                       {/* 必选/常用：API Key、System、Model 置顶展示 */}
-                      <Grid item xs={12}><TextField fullWidth label="API Key（仅随请求使用）" type="password" value={p.params.apiKey || ''} onChange={e => updateParam(p.id, 'apiKey', e.target.value)} /></Grid>
+                      <Grid item xs={12}>{(() => { const isDoubao = isDoubaoProvider(p); const k = p.params.apiKey || ''; const ok = !isDoubao || isLikelyValidDoubaoKey(k); const helper = isDoubao && !ok ? '豆包密钥格式看起来不正确，请粘贴控制台完整密钥（支持 AKTP/v1/tt- 或 UUID）。' : ''; return (
+                        <TextField fullWidth label="API Key（仅随请求使用）" type="password" value={p.params.apiKey || ''} onChange={e => updateParam(p.id, 'apiKey', e.target.value)} error={!ok} helperText={helper} />
+                      )})()}</Grid>
                       <Grid item xs={12}><TextField fullWidth label="System（覆盖全局）" value={p.params.system || ''} onChange={e => updateParam(p.id, 'system', e.target.value)} multiline minRows={2} /></Grid>
                       <Grid item xs={12}><TextField fullWidth label="模型" value={p.params.model || ''} onChange={e => updateParam(p.id, 'model', e.target.value)} /></Grid>
 
@@ -296,5 +315,6 @@ const getReadiness = (p) => {
   const missing = []
   if (!p?.params?.apiKey) missing.push('API Key')
   if (!p?.params?.model) missing.push('模型')
+  if (isDoubaoProvider(p) && p?.params?.apiKey && !isLikelyValidDoubaoKey(p.params.apiKey)) missing.push('API Key格式')
   return missing.length ? { ok: false, missing } : { ok: true }
 }
